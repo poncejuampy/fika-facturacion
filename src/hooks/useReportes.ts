@@ -1,14 +1,15 @@
+"use client";
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabaseClient";
 
 const supabase = createClient();
 
 export type FiltrosVentas = {
-  desde: string;       // ISO date
-  hasta: string;       // ISO date
+  desde: string;
+  hasta: string;
   estado: "todas" | "cobrada" | "anulada";
-  medio_pago_id: string;   // "" = todos
-  categoria_id: string;    // "" = todas
+  medio_pago_id: string;
+  categoria_id: string;
 };
 
 export type VentaReporte = {
@@ -18,10 +19,23 @@ export type VentaReporte = {
   subtotal: number;
   descuento_monto: number;
   estado: string;
+  motivo_anulacion?: string;
+  anulada_en?: string;
   mesa: { nombre: string } | null;
-  descuento: number;
-  pagos: { id: string; monto: number; medio_pago: string; medio: { nombre: string }; submedio: { nombre: string } | null }[];
-  items: { id: string; cantidad: number; cantidad_kg: number | null; precio_unitario: number; precio_total: number; subtotal: number; producto_nombre: string; variante_nombre: string | null; producto: { nombre: string; tipo_venta: string }; variante: { nombre: string } | null }[];
+  pagos: {
+    id: string;
+    monto: number;
+    medio: { nombre: string };
+    submedio: { nombre: string } | null;
+  }[];
+  items: {
+    id: string;
+    cantidad: number;
+    precio_unitario: number;
+    subtotal: number;
+    producto: { nombre: string; tipo_venta: string };
+    variante: { nombre: string } | null;
+  }[];
 };
 
 export function useVentasReporte(filtros: FiltrosVentas) {
@@ -31,16 +45,16 @@ export function useVentasReporte(filtros: FiltrosVentas) {
       let q = supabase
         .from("ventas")
         .select(`
-          id, fecha_hora, total, subtotal, descuento_monto, estado,
+          id, fecha_hora, total, subtotal, descuento_monto, estado, motivo_anulacion, anulada_en,
           mesa:mesas(nombre),
           pagos:pagos_venta(id, monto, medio:medios_pago(nombre), submedio:submedios_pago(nombre)),
-          items:detalle_ventas(id, cantidad, cantidad_kg, precio_unitario, precio_total, subtotal,
+          items:detalle_ventas(id, cantidad, precio_unitario, subtotal,
             producto:productos(nombre, tipo_venta),
             variante:variantes_producto(nombre)
           )
         `)
-        .gte("fecha_hora", filtros.desde + "T00:00:00")
-        .lte("fecha_hora", filtros.hasta + "T23:59:59")
+        .gte("fecha_hora", `${filtros.desde}T00:00:00`)
+        .lte("fecha_hora", `${filtros.hasta}T23:59:59`)
         .order("fecha_hora", { ascending: false });
 
       if (filtros.estado !== "todas") q = q.eq("estado", filtros.estado);
@@ -48,16 +62,7 @@ export function useVentasReporte(filtros: FiltrosVentas) {
       const { data, error } = await q;
       if (error) throw error;
       
-      return (data ?? []).map((v: any) => ({
-        ...v,
-        descuento: v.descuento_monto || 0,
-        pagos: v.pagos.map((p: any) => ({ ...p, medio_pago: p.medio?.nombre || "Otro" })),
-        items: v.items.map((i: any) => ({
-          ...i,
-          producto_nombre: i.producto?.nombre,
-          variante_nombre: i.variante?.nombre || null,
-        }))
-      })) as unknown as VentaReporte[];
+      return data as unknown as VentaReporte[];
     },
     enabled: !!filtros.desde && !!filtros.hasta,
     staleTime: 1000 * 30,
@@ -84,17 +89,21 @@ export function useResumenMediosPago(filtros: FiltrosVentas) {
           venta:ventas!inner(fecha_hora, estado)
         `)
         .eq("venta.estado", "cobrada")
-        .gte("venta.fecha_hora", filtros.desde + "T00:00:00")
-        .lte("venta.fecha_hora", filtros.hasta + "T23:59:59");
+        .gte("venta.fecha_hora", `${filtros.desde}T00:00:00`)
+        .lte("venta.fecha_hora", `${filtros.hasta}T23:59:59`);
 
       if (error) throw error;
 
-      // Agrupar
+      type PagoRow = {
+        monto: number;
+        medio: { nombre: string } | null;
+        submedio: { nombre: string } | null;
+      };
       const mapa: Record<string, ResumenMediosPago> = {};
       for (const row of data ?? []) {
-        const r = row as unknown as { monto: number; medio: { nombre: string }; submedio: { nombre: string } | null };
+        const r = row as unknown as PagoRow;
         const key = `${r.medio?.nombre}|${r.submedio?.nombre ?? ""}`;
-        if (!mapa[key]) mapa[key] = { medio: r.medio?.nombre, submedio: r.submedio?.nombre ?? null, cantidad: 0, total: 0 };
+        if (!mapa[key]) mapa[key] = { medio: r.medio?.nombre ?? "", submedio: r.submedio?.nombre ?? null, cantidad: 0, total: 0 };
         mapa[key].cantidad++;
         mapa[key].total += r.monto;
       }
@@ -102,43 +111,6 @@ export function useResumenMediosPago(filtros: FiltrosVentas) {
     },
     enabled: !!filtros.desde && !!filtros.hasta,
     staleTime: 1000 * 30,
-  });
-}
-
-export function useVentasDelTurno(sesionId: string | null | undefined) {
-  return useQuery<VentaReporte[]>({
-    queryKey: ["ventas_turno", sesionId],
-    queryFn: async () => {
-      if (!sesionId) return [];
-      const { data, error } = await supabase
-        .from("ventas")
-        .select(`
-          id, fecha_hora, total, subtotal, descuento_monto, estado,
-          mesa:mesas(nombre),
-          pagos:pagos_venta(id, monto, medio:medios_pago(nombre), submedio:submedios_pago(nombre)),
-          items:detalle_ventas(id, cantidad, cantidad_kg, precio_unitario, precio_total, subtotal,
-            producto:productos(nombre, tipo_venta),
-            variante:variantes_producto(nombre)
-          )
-        `)
-        .eq("sesion_id", sesionId)
-        .eq("estado", "cobrada")
-        .order("fecha_hora", { ascending: false });
-
-      if (error) throw error;
-      
-      return (data ?? []).map((v: any) => ({
-        ...v,
-        descuento: v.descuento_monto || 0,
-        pagos: v.pagos.map((p: any) => ({ ...p, medio_pago: p.medio?.nombre || "Otro" })),
-        items: v.items.map((i: any) => ({
-          ...i,
-          producto_nombre: i.producto?.nombre,
-          variante_nombre: i.variante?.nombre || null,
-        }))
-      })) as unknown as VentaReporte[];
-    },
-    enabled: !!sesionId,
   });
 }
 
@@ -162,17 +134,22 @@ export function useProductosRanking(filtros: FiltrosVentas) {
           venta:ventas!inner(fecha_hora, estado)
         `)
         .eq("venta.estado", "cobrada")
-        .gte("venta.fecha_hora", filtros.desde + "T00:00:00")
-        .lte("venta.fecha_hora", filtros.hasta + "T23:59:59");
+        .gte("venta.fecha_hora", `${filtros.desde}T00:00:00`)
+        .lte("venta.fecha_hora", `${filtros.hasta}T23:59:59`);
 
       if (error) throw error;
 
+      type DetalleRow = {
+        cantidad: number;
+        subtotal: number;
+        producto: { nombre: string; tipo_venta: string; categoria: { nombre: string } | null } | null;
+      };
       const mapa: Record<string, ProductoRanking> = {};
       for (const row of data ?? []) {
-        const r = row as unknown as { cantidad: number; subtotal: number; producto: { nombre: string; tipo_venta: string; categoria: { nombre: string } } };
+        const r = row as unknown as DetalleRow;
         const key = r.producto?.nombre;
         if (!key) continue;
-        if (!mapa[key]) mapa[key] = { nombre: key, categoria: r.producto.categoria?.nombre, tipo_venta: r.producto.tipo_venta, total_cantidad: 0, total_facturado: 0 };
+        if (!mapa[key]) mapa[key] = { nombre: key, categoria: r.producto?.categoria?.nombre ?? "", tipo_venta: r.producto?.tipo_venta ?? "", total_cantidad: 0, total_facturado: 0 };
         mapa[key].total_cantidad += r.cantidad;
         mapa[key].total_facturado += r.subtotal;
       }

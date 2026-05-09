@@ -14,7 +14,7 @@ export function ModalCierreCaja({ sesion, onCerrar }: { sesion: SesionCaja; onCe
   const [verTicket, setVerTicket] = useState(false);
   const [paso, setPaso] = useState<"arqueo" | "exito">("arqueo");
 
-  const { data: resumen, isLoading } = useResumenSesion(sesion.id);
+  const { data: resumen } = useResumenSesion(sesion.id);
   const cerrar = useCerrarCaja();
 
   // Lógica de cálculos
@@ -36,7 +36,7 @@ export function ModalCierreCaja({ sesion, onCerrar }: { sesion: SesionCaja; onCe
         diferencia
       });
       setPaso("exito");
-    } catch (e) {
+    } catch {
       alert("Error al guardar el cierre en la base de datos.");
     }
   };

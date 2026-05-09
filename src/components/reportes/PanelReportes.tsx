@@ -3,10 +3,27 @@
 import { useState, useMemo } from "react";
 import { ModalDetalleVenta } from "./ModalDetalleVenta";
 import type { VentaReporte } from "@/hooks/useReportes";
-import { useVentasReporte, useResumenMediosPago, useProductosRanking, type FiltrosVentas } from "@/hooks/useReportes";
+import { 
+  useVentasReporte, 
+  useResumenMediosPago, 
+  useProductosRanking, 
+  type FiltrosVentas 
+} from "@/hooks/useReportes";
 import { useMediosPago } from "@/hooks/useMediosPago";
 import { useCategorias } from "@/hooks/useProductos";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import {
+  Filter,
+  ChevronRight,
+  AlertCircle,
+  TrendingUp,
+  Tag,
+  XCircle,
+  Calendar,
+  ArrowUpRight
+} from "lucide-react";
 
+// --- Helpers ---
 const fmt = (n: number) => "$" + Math.round(n).toLocaleString("es-AR");
 
 const hoy = () => new Date().toISOString().split("T")[0];
@@ -14,23 +31,36 @@ const hace = (dias: number) => {
   const d = new Date(); d.setDate(d.getDate() - dias);
   return d.toISOString().split("T")[0];
 };
-const inicioMes = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`; };
+const inicioMes = () => { 
+  const d = new Date(); 
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`; 
+};
 const inicioAno = () => `${new Date().getFullYear()}-01-01`;
 
 type Rango = "hoy" | "semana" | "mes" | "ano" | "custom";
-type Tab = "resumen" | "ventas" | "medios" | "productos";
+type Tab = "resumen" | "ventas" | "medios" | "productos" | "anulaciones";
 
-export function PanelReportes() {
+interface PanelReportesProps {
+  isAdmin: boolean;
+}
+
+export function PanelReportes({ isAdmin }: PanelReportesProps) {
+  const isMobile = useIsMobile();
+  
+  // Estados de Filtros
   const [rango, setRango] = useState<Rango>("hoy");
   const [customDesde, setCustomDesde] = useState(hace(7));
   const [customHasta, setCustomHasta] = useState(hoy());
   const [tab, setTab] = useState<Tab>("resumen");
   const [estado, setEstado] = useState<FiltrosVentas["estado"]>("todas");
-  const [medioPagoId, setMedioPagoId] = useState("");
   const [categoriaId, setCategoriaId] = useState("");
-  const [mediosSeleccionados, setMediosSeleccionados] = useState<string[]>([]);
+  const [medioPagoId, setMedioPagoId] = useState("");
+  
+  // Estados de UI
   const [ventaDetalle, setVentaDetalle] = useState<VentaReporte | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
 
+  // Data Fetching
   const { data: medios = [] } = useMediosPago();
   const { data: categorias = [] } = useCategorias();
 
@@ -45,332 +75,288 @@ export function PanelReportes() {
   const filtros: FiltrosVentas = {
     ...rangoFechas,
     estado,
-    medio_pago_id: medioPagoId,
     categoria_id: categoriaId,
+    medio_pago_id: medioPagoId, 
   };
 
   const { data: ventas = [], isLoading: loadV } = useVentasReporte(filtros);
-  const { data: mediosPago = [], isLoading: loadM } = useResumenMediosPago(filtros);
-  const { data: productos = [], isLoading: loadP } = useProductosRanking(filtros);
+  const { data: mediosResumen = [] } = useResumenMediosPago(filtros);
+  const { data: productosRanking = [] } = useProductosRanking(filtros);
 
-  // Calcular totales del resumen
-  const ventasCobradas = ventas.filter(v => v.estado === "cobrada");
-  const totalVendido = ventasCobradas.reduce((s, v) => s + v.total, 0);
-  const totalDescuentos = ventasCobradas.reduce((s, v) => s + (v.descuento_monto || 0), 0);
+  // Procesamiento de datos para Resumen
+  const ventasCobradas = useMemo(() => ventas.filter(v => v.estado === "cobrada"), [ventas]);
+  const ventasAnuladas = useMemo(() => ventas.filter(v => v.estado === "anulada"), [ventas]);
+  
+  const totalVendido = useMemo(() => ventasCobradas.reduce((s, v) => s + v.total, 0), [ventasCobradas]);
+  const totalDescuentos = useMemo(() => ventasCobradas.reduce((s, v) => s + (v.descuento_monto || 0), 0), [ventasCobradas]);
   const ticketPromedio = ventasCobradas.length > 0 ? totalVendido / ventasCobradas.length : 0;
 
-  // Filtrar medios por selección múltiple
-  const mediosFiltrados = mediosSeleccionados.length > 0
-    ? mediosPago.filter(m => mediosSeleccionados.includes(m.medio))
-    : mediosPago;
-  const totalMediosFiltrados = mediosFiltrados.reduce((s, m) => s + m.total, 0);
-
+  // Estilos
   const S = {
     root:   { flex:1, display:"flex", flexDirection:"column" as const, overflow:"hidden", background:"var(--cream)" },
-    top:    { padding:"20px 28px 0", background:"var(--parchment)", borderBottom:"1px solid var(--cream-deep)", flexShrink:0 as const },
-    body:   { flex:1, overflowY:"auto" as const, padding:"24px 28px" },
-    card:   { background:"var(--parchment)", borderRadius:12, padding:"16px 20px", border:"1px solid var(--cream-deep)" },
-    label:  { fontSize:10, textTransform:"uppercase" as const, letterSpacing:"0.08em", color:"var(--ink-light)", fontWeight:500, marginBottom:6 },
-    value:  { fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:500, color:"var(--ink)" },
-    sub:    { fontSize:11, color:"var(--ink-light)", marginTop:4 },
-    th:     { fontSize:10, textTransform:"uppercase" as const, letterSpacing:"0.08em", color:"var(--ink-light)", padding:"8px 12px", textAlign:"left" as const, borderBottom:"1px solid var(--cream-deep)", fontWeight:500 },
-    td:     { fontSize:13, padding:"10px 12px", borderBottom:"1px solid var(--cream-mid)", color:"var(--ink)" },
+    top:    { padding: isMobile ? "16px 16px 0" : "20px 28px 0", background:"var(--parchment)", borderBottom:"1px solid var(--cream-deep)", flexShrink:0 },
+    body:   { flex:1, overflowY:"auto" as const, padding: isMobile ? "16px" : "24px 28px" },
+    th:     { fontSize:10, textTransform:"uppercase" as const, letterSpacing:"0.08em", color:"var(--ink-light)", padding:"12px", textAlign:"left" as const, borderBottom:"1px solid var(--cream-deep)", fontWeight:600 },
+    td:     { fontSize:13, padding:"12px", borderBottom:"1px solid var(--cream-mid)", color:"var(--ink)" },
+    btnRango: (active: boolean) => ({
+      padding: "6px 14px", borderRadius: 20, border: active ? "1px solid var(--ink)" : "1px solid var(--cream-deep)",
+      background: active ? "var(--ink)" : "white",
+      color: active ? "white" : "var(--ink-mid)",
+      fontSize: 12, fontWeight: 500, cursor: "pointer", transition: "0.2s", fontFamily: "'DM Sans', sans-serif"
+    })
   };
-
-  const rangosBtns: { id: Rango; label: string }[] = [
-    { id:"hoy",    label:"Hoy" },
-    { id:"semana", label:"7 días" },
-    { id:"mes",    label:"Este mes" },
-    { id:"ano",    label:"Este año" },
-    { id:"custom", label:"Personalizado" },
-  ];
-
-  const tabs: { id: Tab; label: string }[] = [
-    { id:"resumen",   label:"Resumen" },
-    { id:"ventas",    label:"Ventas" },
-    { id:"medios",    label:"Por medio de pago" },
-    { id:"productos", label:"Productos" },
-  ];
 
   return (
     <div style={S.root}>
-
-      {/* ── HEADER FILTROS ── */}
+      
+      {/* ── SECCIÓN DE FILTROS & TABS ── */}
       <div style={S.top}>
-        <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginBottom:16 }}>
-          <h1 style={{ fontFamily:"'Playfair Display',serif", fontSize:24, color:"var(--ink)" }}>Reportes</h1>
-          <span style={{ fontSize:12, color:"var(--ink-light)" }}>{rangoFechas.desde} → {rangoFechas.hasta}</span>
-        </div>
-
-        {/* Rangos de fecha */}
-        <div style={{ display:"flex", gap:6, marginBottom:14 }}>
-          {rangosBtns.map(r => (
-            <button key={r.id} onClick={() => setRango(r.id)}
-              style={{ padding:"5px 14px", borderRadius:20, border: rango===r.id ? "1.5px solid var(--ink)" : "1.5px solid var(--cream-deep)", background: rango===r.id ? "var(--ink)" : "transparent", color: rango===r.id ? "var(--cream)" : "var(--ink-mid)", fontSize:12, fontWeight:500, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", transition:"all 0.15s" }}>
-              {r.label}
-            </button>
-          ))}
-          {rango === "custom" && (
-            <div style={{ display:"flex", gap:8, alignItems:"center", marginLeft:8 }}>
-              <input type="date" value={customDesde} onChange={e => setCustomDesde(e.target.value)}
-                style={{ padding:"4px 8px", borderRadius:6, border:"1px solid var(--cream-deep)", fontSize:12, fontFamily:"'DM Sans',sans-serif", background:"var(--parchment)", color:"var(--ink)" }} />
-              <span style={{ fontSize:12, color:"var(--ink-light)" }}>→</span>
-              <input type="date" value={customHasta} onChange={e => setCustomHasta(e.target.value)}
-                style={{ padding:"4px 8px", borderRadius:6, border:"1px solid var(--cream-deep)", fontSize:12, fontFamily:"'DM Sans',sans-serif", background:"var(--parchment)", color:"var(--ink)" }} />
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20 }}>
+          <div>
+            <h1 style={{ fontFamily:"'Playfair Display',serif", fontSize: isMobile ? 22 : 28, color:"var(--ink)", margin:0 }}>Reportes</h1>
+            <div style={{ display:"flex", alignItems:"center", gap:6, color:"var(--ink-light)", marginTop:4 }}>
+              <Calendar size={12} />
+              <span style={{ fontSize:12 }}>{rangoFechas.desde} / {rangoFechas.hasta}</span>
             </div>
+          </div>
+          {isMobile && (
+            <button onClick={() => setShowFilters(!showFilters)} style={{ width:40, height:40, borderRadius:12, background: showFilters ? "var(--ink)" : "white", color: showFilters ? "white" : "var(--ink)", border:"1px solid var(--cream-deep)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+              <Filter size={18} />
+            </button>
           )}
         </div>
 
-        {/* Filtros adicionales */}
-        <div style={{ display:"flex", gap:10, marginBottom:14, flexWrap:"wrap" as const }}>
-          <select value={estado} onChange={e => setEstado(e.target.value as FiltrosVentas["estado"])}
-            style={{ padding:"5px 10px", borderRadius:8, border:"1px solid var(--cream-deep)", fontSize:12, fontFamily:"'DM Sans',sans-serif", background:"var(--parchment)", color:"var(--ink)", cursor:"pointer" }}>
-            <option value="todas">Todas las ventas</option>
-            <option value="cobrada">Solo cobradas</option>
-            <option value="anulada">Solo anuladas</option>
-          </select>
+        {(!isMobile || showFilters) && (
+          <div style={{ display:"flex", flexDirection:"column", gap:12, marginBottom:20, animation: "slideDown 0.2s ease-out" }}>
+            
+            {/* Botones de Rango Rápido */}
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+              {(["hoy", "semana", "mes", "ano", "custom"] as Rango[]).map(r => (
+                <button key={r} onClick={() => setRango(r)} style={S.btnRango(rango === r)}>
+                  {r === "semana" ? "7 días" : r === "ano" ? "Año" : r.charAt(0).toUpperCase() + r.slice(1)}
+                </button>
+              ))}
+            </div>
 
-          <select value={categoriaId} onChange={e => setCategoriaId(e.target.value)}
-            style={{ padding:"5px 10px", borderRadius:8, border:"1px solid var(--cream-deep)", fontSize:12, fontFamily:"'DM Sans',sans-serif", background:"var(--parchment)", color:"var(--ink)", cursor:"pointer" }}>
-            <option value="">Todas las categorías</option>
-            {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-          </select>
-        </div>
+            {rango === "custom" && (
+              <div style={{ display:"flex", gap:8, alignItems:"center", background:"white", padding:"8px 12px", borderRadius:12, border:"1px solid var(--cream-deep)" }}>
+                <input type="date" value={customDesde} onChange={e => setCustomDesde(e.target.value)} style={{ border:"none", fontSize:13, outline:"none", color:"var(--ink)" }} />
+                <span style={{ color: "var(--cream-deep)" }}>→</span>
+                <input type="date" value={customHasta} onChange={e => setCustomHasta(e.target.value)} style={{ border:"none", fontSize:13, outline:"none", color:"var(--ink)" }} />
+              </div>
+            )}
 
-        {/* Tabs */}
-        <div style={{ display:"flex", gap:0, borderBottom:"none" }}>
-          {tabs.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              style={{ padding:"8px 16px", borderRadius:"8px 8px 0 0", border:"1px solid var(--cream-deep)", borderBottom: tab===t.id ? "1px solid var(--parchment)" : "1px solid var(--cream-deep)", background: tab===t.id ? "var(--parchment)" : "var(--cream-mid)", color: tab===t.id ? "var(--ink)" : "var(--ink-light)", fontSize:12, fontWeight: tab===t.id ? 500 : 400, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", marginRight:4, transition:"all 0.15s", position:"relative" as const, bottom:-1 }}>
-              {t.label}
-            </button>
-          ))}
+            {/* Selectores de Estado y Categoría */}
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+              <select value={estado} onChange={e => setEstado(e.target.value as FiltrosVentas["estado"])} style={{ padding:"8px 12px", borderRadius:10, border:"1px solid var(--cream-deep)", fontSize:13, background:"white", color:"var(--ink)", outline:"none" }}>
+                <option value="todas">Todos los estados</option>
+                <option value="cobrada">Solo Cobradas</option>
+                <option value="anulada">Solo Anuladas</option>
+              </select>
+              
+              <select value={categoriaId} onChange={e => setCategoriaId(e.target.value)} style={{ padding:"8px 12px", borderRadius:10, border:"1px solid var(--cream-deep)", fontSize:13, background:"white", color:"var(--ink)", outline:"none" }}>
+                <option value="">Todas las categorías</option>
+                {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </select>
+
+              <select value={medioPagoId} onChange={e => setMedioPagoId(e.target.value)} style={{ padding:"8px 12px", borderRadius:10, border:"1px solid var(--cream-deep)", fontSize:13, background:"white", color:"var(--ink)", outline:"none" }}>
+                <option value="">Todos los medios</option>
+                {medios.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {/* Tabs de Navegación Estilo Fika */}
+        <div style={{ display:"flex", gap:4, overflowX:"auto", scrollbarWidth:"none", borderBottom:"1px solid var(--cream-deep)" }}>
+          {(["resumen", "ventas", "medios", "productos", "anulaciones"] as Tab[]).map(t => {
+            if (t === "anulaciones" && !isAdmin) return null;
+            const active = tab === t;
+            return (
+              <button key={t} onClick={() => setTab(t)} style={{
+                padding: "12px 20px", border: "none", background: "none",
+                color: active ? "var(--ink)" : "var(--ink-light)",
+                fontWeight: active ? 600 : 400, fontSize: 13,
+                borderBottom: active ? "2px solid var(--ink)" : "2px solid transparent",
+                cursor: "pointer", whiteSpace: "nowrap", transition: "0.2s",
+                fontFamily: "'DM Sans', sans-serif", textTransform: "capitalize"
+              }}>
+                {t === "medios" ? "Medios de Pago" : t}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* ── CONTENIDO ── */}
+      {/* ── CUERPO DE CONTENIDO ── */}
       <div style={S.body}>
-
-        {/* TAB: RESUMEN */}
+        
+        {/* TAB: RESUMEN (Métricas principales) */}
         {tab === "resumen" && (
-          <div>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(200px, 1fr))", gap:14, marginBottom:28 }}>
-              <MetricCard label="Total vendido" value={fmt(totalVendido)} sub={`${ventasCobradas.length} ventas cobradas`} color="var(--ink)" />
-              <MetricCard label="Ticket promedio" value={fmt(ticketPromedio)} sub="por venta" color="var(--sage)" />
-              <MetricCard label="Descuentos" value={fmt(totalDescuentos)} sub="total descontado" color="var(--amber)" />
-              <MetricCard label="Ventas anuladas" value={String(ventas.filter(v=>v.estado==="anulada").length)} sub="en el período" color="var(--rose)" />
+          <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
+            <div style={{ display:"grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(220px, 1fr))", gap:16 }}>
+              <MetricCard icon={<TrendingUp size={18}/>} label="Venta Neta" value={fmt(totalVendido)} sub={`${ventasCobradas.length} cobros realizados`} color="var(--ink)" />
+              <MetricCard icon={<ArrowUpRight size={18}/>} label="Promedio" value={fmt(ticketPromedio)} sub="Venta promedio por ticket" color="var(--sage)" />
+              <MetricCard icon={<Tag size={18}/>} label="Descuentos" value={fmt(totalDescuentos)} sub="Total bonificado en el período" color="var(--amber)" />
+              <MetricCard icon={<XCircle size={18}/>} label="Anuladas" value={ventasAnuladas.length.toString()} sub="Ventas canceladas con motivo" color="var(--rose)" />
             </div>
 
-            {/* Mini resumen por medio de pago */}
-            <h3 style={{ fontFamily:"'Playfair Display',serif", fontSize:16, color:"var(--ink)", marginBottom:14 }}>
-              Recaudado por medio de pago
-            </h3>
-            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-              {mediosPago.map((m, i) => (
-                <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 16px", background:"var(--parchment)", borderRadius:10, border:"1px solid var(--cream-deep)" }}>
-                  <div>
-                    <span style={{ fontSize:13, fontWeight:500, color:"var(--ink)" }}>{m.medio}</span>
-                    {m.submedio && <span style={{ fontSize:11, color:"var(--ink-light)", marginLeft:6 }}>· {m.submedio}</span>}
-                  </div>
-                  <div style={{ display:"flex", gap:16, alignItems:"center" }}>
-                    <span style={{ fontSize:11, color:"var(--ink-light)" }}>{m.cantidad} transacciones</span>
-                    <span style={{ fontFamily:"'Playfair Display',serif", fontSize:16, fontWeight:500, color:"var(--ink)" }}>{fmt(m.total)}</span>
-                  </div>
-                </div>
-              ))}
-              {mediosPago.length === 0 && !loadM && <p style={{ color:"var(--ink-light)", fontSize:13, fontStyle:"italic" }}>Sin datos en el período</p>}
-            </div>
-          </div>
-        )}
-
-        {/* TAB: VENTAS */}
-        {tab === "ventas" && (
-          <div>
-            <div style={{ marginBottom:14, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <p style={{ fontSize:13, color:"var(--ink-light)" }}>
-                {ventas.length} venta{ventas.length !== 1 ? "s" : ""} · Total: {fmt(totalVendido)}
-              </p>
-            </div>
-            {loadV ? <p style={{ color:"var(--ink-light)", fontStyle:"italic" }}>Cargando…</p> : (
-              <div style={{ background:"var(--parchment)", borderRadius:12, border:"1px solid var(--cream-deep)", overflow:"hidden" }}>
-                <table style={{ width:"100%", borderCollapse:"collapse" }}>
-                  <thead>
-                    <tr style={{ background:"var(--cream-mid)" }}>
-                      <th style={S.th}>Fecha y hora</th>
-                      <th style={S.th}>Mesa</th>
-                      <th style={S.th}>Ítems</th>
-                      <th style={S.th}>Medio de pago</th>
-                      <th style={S.th}>Descuento</th>
-                      <th style={S.th}>Estado</th>
-                      <th style={{ ...S.th, textAlign:"right" as const }}>Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ventas.map(v => {
-                      const fecha = new Date(v.fecha_hora);
-                      const handleRowClick = () => setVentaDetalle(v);
-                      const mediosPagoStr = v.pagos?.map(p => p.medio?.nombre + (p.submedio ? ` (${p.submedio.nombre})` : "")).join(", ") ?? "—";
-                      return (
-                        <tr key={v.id} onClick={handleRowClick} style={{ cursor:"pointer" }} onMouseEnter={e=>(e.currentTarget.style.background="var(--cream)")} onMouseLeave={e=>(e.currentTarget.style.background="")}>
-                          <td style={S.td}>
-                            <div style={{ fontSize:13 }}>{fecha.toLocaleDateString("es-AR")}</div>
-                            <div style={{ fontSize:11, color:"var(--ink-light)" }}>{fecha.toLocaleTimeString("es-AR", {hour:"2-digit",minute:"2-digit"})}</div>
-                          </td>
-                          <td style={S.td}>{(v.mesa as unknown as {nombre:string}|null)?.nombre ?? "Para llevar"}</td>
-                          <td style={S.td}>{v.items?.length ?? 0} ítem{v.items?.length !== 1 ? "s" : ""}</td>
-                          <td style={{ ...S.td, fontSize:12 }}>{mediosPagoStr}</td>
-                          <td style={S.td}>{v.descuento_monto > 0 ? fmt(v.descuento_monto) : "—"}</td>
-                          <td style={S.td}>
-                            <span style={{ padding:"2px 8px", borderRadius:10, fontSize:11, fontWeight:500,
-                              background: v.estado === "cobrada" ? "var(--sage-bg)" : "var(--rose-bg)",
-                              color: v.estado === "cobrada" ? "var(--sage)" : "var(--rose)" }}>
-                              {v.estado}
-                            </span>
-                          </td>
-                          <td style={{ ...S.td, textAlign:"right" as const, fontFamily:"'Playfair Display',serif", fontWeight:500 }}>
-                            {fmt(v.total)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {ventas.length === 0 && (
-                      <tr><td colSpan={7} style={{ padding:"24px", textAlign:"center", color:"var(--ink-light)", fontStyle:"italic" }}>Sin ventas en el período seleccionado</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* TAB: MEDIOS DE PAGO */}
-        {tab === "medios" && (
-          <div>
-            {/* Selector múltiple de medios */}
-            <div style={{ marginBottom:20 }}>
-              <p style={{ fontSize:11, textTransform:"uppercase", letterSpacing:"0.08em", color:"var(--ink-light)", marginBottom:10 }}>
-                Filtrar por medios (selección múltiple)
-              </p>
-              <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
-                {medios.map(m => {
-                  const sel = mediosSeleccionados.includes(m.nombre);
-                  return (
-                    <button key={m.id} onClick={() => setMediosSeleccionados(prev => sel ? prev.filter(x=>x!==m.nombre) : [...prev, m.nombre])}
-                      style={{ padding:"6px 14px", borderRadius:20, border: sel ? "1.5px solid var(--ink)" : "1.5px solid var(--cream-deep)", background: sel ? "var(--ink)" : "transparent", color: sel ? "var(--cream)" : "var(--ink-mid)", fontSize:12, fontWeight:500, fontFamily:"'DM Sans',sans-serif", cursor:"pointer", transition:"all 0.15s" }}>
-                      {m.nombre}
-                    </button>
-                  );
-                })}
-                {mediosSeleccionados.length > 0 && (
-                  <button onClick={() => setMediosSeleccionados([])}
-                    style={{ padding:"6px 14px", borderRadius:20, border:"1.5px solid var(--rose)", background:"var(--rose-bg)", color:"var(--rose)", fontSize:12, fontFamily:"'DM Sans',sans-serif", cursor:"pointer" }}>
-                    Limpiar filtro
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Total combinado si hay selección */}
-            {mediosSeleccionados.length > 0 && (
-              <div style={{ background:"var(--sage-bg)", border:"1px solid var(--sage-light)", borderRadius:12, padding:"14px 20px", marginBottom:20, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                <span style={{ fontSize:13, color:"var(--sage)" }}>
-                  Total combinado: {mediosSeleccionados.join(" + ")}
-                </span>
-                <span style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:500, color:"var(--sage)" }}>
-                  {fmt(totalMediosFiltrados)}
-                </span>
-              </div>
-            )}
-
-            {loadM ? <p style={{ color:"var(--ink-light)", fontStyle:"italic" }}>Cargando…</p> : (
-              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                {mediosFiltrados.map((m, i) => (
-                  <div key={i} style={{ background:"var(--parchment)", borderRadius:12, padding:"16px 20px", border:"1px solid var(--cream-deep)", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                    <div>
-                      <p style={{ fontSize:15, fontWeight:500, color:"var(--ink)" }}>{m.medio}</p>
-                      {m.submedio && <p style={{ fontSize:12, color:"var(--ink-light)", marginTop:2 }}>{m.submedio}</p>}
-                      <p style={{ fontSize:11, color:"var(--ink-light)", marginTop:4 }}>{m.cantidad} transacciones</p>
+            <div style={{ background:"white", padding:24, borderRadius:24, border:"1px solid var(--cream-deep)", boxShadow: "0 10px 30px rgba(42,34,24,0.04)" }}>
+              <h3 style={{ fontFamily:"'Playfair Display',serif", fontSize:18, marginBottom:20, color:"var(--ink)" }}>Recaudación por Medio de Pago</h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {mediosResumen.map((m, i) => (
+                  <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems: "center", paddingBottom:14, borderBottom: i === mediosResumen.length -1 ? "none" : "1px solid var(--parchment)" }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                      <div style={{ width:8, height:8, borderRadius:"50%", background:"var(--sage-light)" }} />
+                      <span style={{ fontSize:14, fontWeight:500, color:"var(--ink-mid)" }}>{m.medio} {m.submedio && <small style={{color:"var(--ink-light)"}}>({m.submedio})</small>}</span>
                     </div>
-                    <div style={{ textAlign:"right" }}>
-                      <p style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:500, color:"var(--ink)" }}>{fmt(m.total)}</p>
-                      <p style={{ fontSize:11, color:"var(--ink-light)", marginTop:2 }}>
-                        {totalMediosFiltrados > 0 ? Math.round((m.total / totalMediosFiltrados) * 100) : 0}% del total
-                      </p>
-                    </div>
+                    <span style={{ fontWeight:700, fontSize:16, color:"var(--ink)" }}>{fmt(m.total)}</span>
                   </div>
                 ))}
-                {mediosFiltrados.length === 0 && <p style={{ color:"var(--ink-light)", fontSize:13, fontStyle:"italic" }}>Sin datos en el período</p>}
+                {mediosResumen.length === 0 && <p style={{ color:"var(--ink-light)", fontSize:14, textAlign:"center", padding:20 }}>Sin movimientos en este rango.</p>}
               </div>
-            )}
+            </div>
           </div>
         )}
 
-        {/* TAB: PRODUCTOS */}
-        {tab === "productos" && (
-          <div>
-            <p style={{ fontSize:13, color:"var(--ink-light)", marginBottom:16 }}>
-              Ranking por monto facturado
-            </p>
-            {loadP ? <p style={{ color:"var(--ink-light)", fontStyle:"italic" }}>Cargando…</p> : (
-              <div style={{ background:"var(--parchment)", borderRadius:12, border:"1px solid var(--cream-deep)", overflow:"hidden" }}>
-                <table style={{ width:"100%", borderCollapse:"collapse" }}>
-                  <thead>
-                    <tr style={{ background:"var(--cream-mid)" }}>
-                      <th style={{ ...S.th, width:30 }}>#</th>
-                      <th style={S.th}>Producto</th>
-                      <th style={S.th}>Categoría</th>
-                      <th style={S.th}>Tipo</th>
-                      <th style={{ ...S.th, textAlign:"right" as const }}>Cantidad</th>
-                      <th style={{ ...S.th, textAlign:"right" as const }}>Facturado</th>
+        {/* TAB: VENTAS (Listado cronológico) */}
+        {tab === "ventas" && (
+          <div style={{ background:"white", borderRadius:20, border:"1px solid var(--cream-deep)", overflow:"hidden", boxShadow: "0 10px 30px rgba(42,34,24,0.04)" }}>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                <thead>
+                  <tr style={{ background:"var(--parchment)" }}>
+                    <th style={S.th}>Horario</th>
+                    <th style={S.th}>Ubicación / Mesa</th>
+                    <th style={S.th}>Monto Total</th>
+                    <th style={S.th}>Estado</th>
+                    <th style={{ ...S.th, width: 40 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ventas.map((v: VentaReporte) => (
+                    <tr key={v.id} onClick={() => setVentaDetalle(v)} style={{ cursor:"pointer", transition: "background 0.2s" }} className="row-hover">
+                      <td style={S.td}>
+                        <div style={{fontWeight:600}}>{new Date(v.fecha_hora).toLocaleTimeString("es-AR", {hour:'2-digit', minute:'2-digit'})}</div>
+                        <div style={{fontSize:11, color:"var(--ink-light)"}}>{new Date(v.fecha_hora).toLocaleDateString()}</div>
+                      </td>
+                      <td style={S.td}>
+                        <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                          <span style={{ fontSize:14 }}>{v.mesa?.nombre || "🏷️ Mostrador"}</span>
+                        </div>
+                      </td>
+                      <td style={{ ...S.td, fontWeight:700, fontSize:15 }}>{fmt(v.total)}</td>
+                      <td style={S.td}>
+                        <span style={{ padding:"4px 10px", borderRadius:10, fontSize:10, fontWeight:700, textTransform:"uppercase", background: v.estado==="cobrada" ? "var(--sage-bg)" : v.estado==="anulada" ? "var(--rose-bg)" : "var(--amber-bg)", color: v.estado==="cobrada" ? "var(--sage)" : v.estado==="anulada" ? "var(--rose)" : "var(--amber)" }}>
+                          {v.estado}
+                        </span>
+                      </td>
+                      <td style={S.td}><ChevronRight size={16} color="var(--ink-light)" /></td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {productos.map((p, i) => (
-                      <tr key={p.nombre}>
-                        <td style={{ ...S.td, color:"var(--ink-light)", fontWeight:500 }}>{i+1}</td>
-                        <td style={{ ...S.td, fontWeight:500 }}>{p.nombre}</td>
-                        <td style={S.td}>{p.categoria}</td>
-                        <td style={S.td}>
-                          <span style={{ fontSize:10, padding:"2px 6px", borderRadius:8, background: p.tipo_venta==="peso" ? "var(--sage-bg)" : p.tipo_venta==="tamanio" ? "var(--amber-bg)" : "var(--cream-mid)", color: p.tipo_venta==="peso" ? "var(--sage)" : p.tipo_venta==="tamanio" ? "var(--amber)" : "var(--ink-mid)", textTransform:"uppercase", letterSpacing:"0.06em" }}>
-                            {p.tipo_venta}
-                          </span>
-                        </td>
-                        <td style={{ ...S.td, textAlign:"right" as const }}>
-                          {p.tipo_venta === "peso" ? `${p.total_cantidad.toFixed(3)} kg` : Math.round(p.total_cantidad)}
-                        </td>
-                        <td style={{ ...S.td, textAlign:"right" as const, fontFamily:"'Playfair Display',serif", fontWeight:500 }}>
-                          {fmt(p.total_facturado)}
-                        </td>
-                      </tr>
-                    ))}
-                    {productos.length === 0 && (
-                      <tr><td colSpan={6} style={{ padding:"24px", textAlign:"center", color:"var(--ink-light)", fontStyle:"italic" }}>Sin datos en el período</td></tr>
-                    )}
-                  </tbody>
-                </table>
+                  ))}
+                  {ventas.length === 0 && !loadV && (
+                    <tr><td colSpan={5} style={{ padding:40, textAlign:"center", color:"var(--ink-light)" }}>No se encontraron ventas con estos filtros.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB: PRODUCTOS (Ranking) */}
+        {tab === "productos" && (
+          <div style={{ background:"white", borderRadius:20, border:"1px solid var(--cream-deep)", overflow:"hidden", boxShadow: "0 10px 30px rgba(42,34,24,0.04)" }}>
+            <table style={{ width:"100%", borderCollapse:"collapse" }}>
+              <thead>
+                <tr style={{ background:"var(--parchment)" }}>
+                  <th style={{ ...S.th, width: 40 }}>Pos.</th>
+                  <th style={S.th}>Producto</th>
+                  <th style={{ ...S.th, textAlign:"right" }}>Vendidos</th>
+                  <th style={{ ...S.th, textAlign:"right" }}>Recaudado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {productosRanking.map((p, i) => (
+                  <tr key={i}>
+                    <td style={{ ...S.td, color:"var(--ink-light)", fontWeight:600 }}>{i + 1}</td>
+                    <td style={S.td}>
+                      <div style={{fontWeight:600, fontSize:14}}>{p.nombre}</div>
+                      <div style={{fontSize:11, color:"var(--ink-light)"}}>{p.categoria}</div>
+                    </td>
+                    <td style={{ ...S.td, textAlign:"right", fontWeight:500 }}>{p.total_cantidad}</td>
+                    <td style={{ ...S.td, textAlign:"right", fontWeight:700, fontSize:15, color:"var(--ink)" }}>{fmt(p.total_facturado)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* TAB: ANULACIONES (Historial con motivo) */}
+        {tab === "anulaciones" && (
+          <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+            {ventasAnuladas.map((v: VentaReporte) => (
+              <div key={v.id} onClick={() => setVentaDetalle(v)} style={{ background:"white", padding:20, borderRadius:20, border:"1px solid var(--rose-bg)", cursor:"pointer", transition: "transform 0.2s" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                    <div style={{ width:40, height:40, borderRadius:12, background:"var(--rose-bg)", display:"flex", alignItems:"center", justifyContent:"center", color:"var(--rose)" }}>
+                      <AlertCircle size={20} />
+                    </div>
+                    <div>
+                      <strong style={{fontSize:18, color:"var(--ink)"}}>{fmt(v.total)}</strong>
+                      <p style={{ fontSize:12, color:"var(--ink-light)" }}>{new Date(v.fecha_hora).toLocaleString()}</p>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <span style={{ fontSize:10, fontWeight:800, color:"var(--rose)", background:"var(--rose-bg)", padding: "4px 8px", borderRadius:6, textTransform: "uppercase" }}>ANULADA</span>
+                  </div>
+                </div>
+                <div style={{ marginTop:16, padding:12, background:"var(--parchment)", borderRadius:12, border:"1px solid var(--cream-deep)" }}>
+                  <p style={{ fontSize:11, textTransform:"uppercase", color:"var(--ink-light)", fontWeight:700, marginBottom:4 }}>Motivo de la anulación:</p>
+                  <p style={{ fontSize:13, color:"var(--ink-mid)", fontStyle:"italic" }}>&ldquo;{v.motivo_anulacion || "Sin motivo especificado"}&rdquo;</p>
+                </div>
               </div>
-            )}
+            ))}
+            {ventasAnuladas.length === 0 && <p style={{textAlign:"center", padding:60, color:"var(--ink-light)", fontFamily:"'Playfair Display', serif", fontSize:18, opacity: 0.6}}>No hay registros de anulaciones.</p>}
           </div>
         )}
       </div>
 
-      {/* Modal detalle de venta */}
+      {/* MODAL DETALLE DE VENTA */}
       {ventaDetalle && (
-        <ModalDetalleVenta
-          venta={ventaDetalle}
-          onCerrar={() => setVentaDetalle(null)}
+        <ModalDetalleVenta 
+          venta={ventaDetalle} 
+          onCerrar={() => setVentaDetalle(null)} 
         />
       )}
+
+      {/* Estilos Globales para Componente */}
+      <style>{`
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        .row-hover:hover { background: var(--cream-bg) !important; }
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-thumb { background: var(--cream-deep); border-radius: 10px; }
+      `}</style>
     </div>
   );
 }
 
-function MetricCard({ label, value, sub, color }: { label: string; value: string; sub: string; color: string }) {
+// ── SUB-COMPONENTE: Tarjeta de Métrica ──
+function MetricCard({ label, value, sub, color, icon }: { label: string; value: string; sub: string; color: string; icon: React.ReactNode }) {
   return (
-    <div style={{ background:"var(--parchment)", borderRadius:12, padding:"16px 20px", border:"1px solid var(--cream-deep)" }}>
-      <p style={{ fontSize:10, textTransform:"uppercase", letterSpacing:"0.08em", color:"var(--ink-light)", fontWeight:500, marginBottom:8 }}>{label}</p>
-      <p style={{ fontFamily:"'Playfair Display',serif", fontSize:26, fontWeight:500, color }}>{value}</p>
-      <p style={{ fontSize:11, color:"var(--ink-light)", marginTop:4 }}>{sub}</p>
+    <div style={{ 
+      background: "white", padding: "24px", borderRadius: "24px", 
+      border: "1px solid var(--cream-deep)", boxShadow: "0 10px 30px rgba(42,34,24,0.03)",
+      display: "flex", flexDirection: "column", justifyContent: "center"
+    }}>
+      <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16, color:"var(--ink-light)" }}>
+        <div style={{ color }}>{icon}</div>
+        <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", margin:0 }}>{label}</p>
+      </div>
+      <p style={{ fontFamily: "'Playfair Display', serif", fontSize: 32, fontWeight: 600, color: color, margin: 0, letterSpacing: "-0.02em" }}>{value}</p>
+      <p style={{ fontSize: 12, color: "var(--ink-mid)", marginTop: 10, display: "flex", alignItems: "center", gap: 4 }}>
+        {sub}
+      </p>
     </div>
   );
 }

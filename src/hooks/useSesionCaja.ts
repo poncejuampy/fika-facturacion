@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabaseClient";
+import type { VentaReporte } from "@/hooks/useReportes";
 
 export type SesionCaja = {
   id: string;
@@ -70,26 +71,28 @@ export function useResumenSesion(sesionId: string | null) {
 
       if (error) throw error;
 
-      const ventasFmt = (ventas || []).map((v: any) => ({
-        ...v,
-        pagos: v.pagos.map((p: any) => ({
-          monto: p.monto,
-          medio_pago: p.medio?.nombre || "Otro"
-        }))
-      }));
+      type VentaRaw = {
+        id: string; total: number; subtotal: number;
+        descuento_monto: number; estado: string; fecha_hora: string;
+        mesa: { nombre: string } | null;
+        pagos: { monto: number; medio: { nombre: string } | null }[];
+      };
+
+      const ventasRaw = (ventas || []) as unknown as VentaRaw[];
 
       const porMedio: Record<string, number> = {};
-      ventasFmt.forEach(v => {
-        v.pagos.forEach((p: any) => {
-          porMedio[p.medio_pago] = (porMedio[p.medio_pago] || 0) + p.monto;
+      ventasRaw.forEach(v => {
+        v.pagos.forEach(p => {
+          const nombreMedio = p.medio?.nombre || "Otro";
+          porMedio[nombreMedio] = (porMedio[nombreMedio] || 0) + p.monto;
         });
       });
 
-      return { 
-        totalVendido: ventasFmt.reduce((s, v) => s + v.total, 0),
-        cantidadVentas: ventasFmt.length,
+      return {
+        totalVendido: ventasRaw.reduce((s, v) => s + v.total, 0),
+        cantidadVentas: ventasRaw.length,
         porMedio,
-        ventasRaw: ventasFmt
+        ventasRaw: ventasRaw as unknown as VentaReporte[],
       };
     },
   });

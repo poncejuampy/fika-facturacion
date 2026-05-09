@@ -54,7 +54,6 @@ export function useTodosProductos() {
   return useQuery<Producto[]>({
     queryKey: ["todos_productos"],
     queryFn: async () => {
-      const supabase = createClient();
       const { data, error } = await createClient()
         .from("productos")
         .select("*")

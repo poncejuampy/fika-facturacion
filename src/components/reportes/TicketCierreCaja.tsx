@@ -19,9 +19,11 @@ type Props = {
 export function TicketCierreCaja({ sesionCaja, ventas, arqueo }: Props) {
   const formatCurrency = (n: number) => `$${Math.round(n).toLocaleString("es-AR")}`;
 
+  // CORRECCIÓN: Usar p.medio.nombre en lugar de p.medio_pago
   const totalPorMedioPago = ventas.reduce((acc, v) => {
     v.pagos.forEach((p) => {
-      acc[p.medio_pago] = (acc[p.medio_pago] || 0) + p.monto;
+      const nombreMedio = p.medio?.nombre || "Desconocido";
+      acc[nombreMedio] = (acc[nombreMedio] || 0) + p.monto;
     });
     return acc;
   }, {} as Record<string, number>);

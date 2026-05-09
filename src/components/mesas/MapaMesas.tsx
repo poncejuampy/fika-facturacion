@@ -8,12 +8,7 @@ import { MesaCard } from "./MesaCard";
 import { PanelPedido } from "../pedido/PanelPedido";
 import type { Mesa } from "@/types/mesa";
 
-interface MapaMesasProps {
-  onSelectMesa?: (mesa: Mesa) => void;
-  onParaLlevar?: () => void;
-}
-
-export function MapaMesas({ onSelectMesa, onParaLlevar }: MapaMesasProps) {
+export function MapaMesas() {
   const { data: mesas = [], isLoading, error } = useMesas();
   const { data: sesion } = useSesionActiva();
   const { data: facturadoHoy } = useFacturadoHoy();
@@ -143,16 +138,6 @@ function Chip({ tipo, children }: { tipo:"total"|"libre"|"ocupada"; children: Re
   );
 }
 
-function ActionBtn({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <button style={{ width:"100%", padding:"12px 14px", borderRadius:12, border:"1.5px solid var(--cream-deep)", background:"var(--cream)", color:"var(--ink-mid)", fontFamily:"'DM Sans',sans-serif", fontSize:13, fontWeight:500, cursor:"pointer", textAlign:"left", display:"flex", alignItems:"center", gap:10, transition:"all 0.18s", letterSpacing:"0.01em" }}>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width:15,height:15,opacity:0.6,flexShrink:0}}>
-        {icon}
-      </svg>
-      {children}
-    </button>
-  );
-}
 
 function MetricCard({ label, value, sub }: { label: string; value: string|number; sub: string }) {
   return (

@@ -5,6 +5,7 @@ export type MedioPago = {
   id: string;
   nombre: string;
   activo: boolean;
+  submedios?: { id: string; nombre: string }[];
 };
 
 export type SubmedioPago = {
@@ -21,7 +22,7 @@ export function useMediosPago() {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("medios_pago")
-        .select("*")
+        .select("*, submedios:submedios_pago(id, nombre)")
         .eq("activo", true)
         .order("nombre");
       if (error) throw error;

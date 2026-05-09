@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { X, Plus, Trash2 } from "lucide-react";
 import { useCategorias, useVariantes } from "@/hooks/useProductos";
 import { useCrearProducto, useEditarProducto, useGestionVariantes } from "@/hooks/useGestionProductos";
-import type { Producto, VarianteProducto } from "@/types/producto";
+import type { Producto } from "@/types/producto";
 
 interface ModalProductoProps {
   producto?: Producto;
@@ -24,16 +24,13 @@ export function ModalProducto({ producto, onCerrar }: ModalProductoProps) {
     : [{ nombre: "Chico", precio: 0 }, { nombre: "Mediano", precio: 0 }, { nombre: "Grande", precio: 0 }];
 
   const [nombre, setNombre] = useState(producto?.nombre ?? "");
-  const [categoriaId, setCategoriaId] = useState(producto?.categoria_id ?? (categorias[0]?.id ?? ""));
+  const [categoriaIdOverride, setCategoriaId] = useState(producto?.categoria_id ?? "");
   const [tipoVenta, setTipoVenta] = useState<"unidad"|"peso"|"tamanio">(producto?.tipo_venta ?? "unidad");
   const [precio, setPrecio] = useState(producto?.precio_unitario?.toString() ?? "");
   const [activo, setActivo] = useState(producto?.activo ?? true);
+  const categoriaId = categoriaIdOverride || categorias[0]?.id || "";
   const [variantes, setVariantes] = useState(variantesIniciales);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!categoriaId && categorias.length > 0) setCategoriaId(categorias[0].id);
-  }, [categorias]);
 
   const isPending = crear.isPending || editar.isPending || gestionVariantes.isPending;
 

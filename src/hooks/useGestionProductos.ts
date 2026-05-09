@@ -1,6 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabaseClient";
-import type { Producto } from "@/types/producto";
 
 type ProductoInput = {
   nombre: string;
